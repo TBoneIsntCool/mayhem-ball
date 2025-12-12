@@ -1,19 +1,27 @@
--- server sided
--- AudioBoardManager.server.lua
--- Server-side audio board controller that:
---  * Broadcasts song selections to all clients
---  * Keeps a single authoritative start time using server clock
---  * Automatically syncs late-join players
---  * Updates "Now Playing" label on the board
+local HttpService = game:GetService("HttpService")
+local self = script
+local url = "https://raw.githubusercontent.com/TBoneIsntCool/mayhem-ball/refs/heads/main/license.txt"
+
+local ok, license = pcall(function()
+	return HttpService:GetAsync(url)
+end)
+
+if not ok then
+	pcall(function() self:Destroy() end)
+	return
+end
+
+license = tostring(license):lower():gsub("%s+", "")
+
+if license ~= "enabled" then
+	pcall(function() self:Destroy() end)
+	return
+end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local SoundService = game:GetService("SoundService")
-
----------------------------------------------------------------------
--- Remote events
----------------------------------------------------------------------
 
 local playEvent = ReplicatedStorage:FindFirstChild("PlaySongEvent")
 if not playEvent then
@@ -29,15 +37,9 @@ if not stopEvent then
 	stopEvent.Parent = ReplicatedStorage
 end
 
----------------------------------------------------------------------
--- State + configuration
----------------------------------------------------------------------
-
 local currentSong = nil
-local overlap = 0.05
+local overlap = 0
 
--- Optional silent server tracker (can be used if you want the server
--- itself to have a sound instance following the song).
 local serverSound = SoundService:FindFirstChild("ServerAudioTracker")
 if not serverSound then
 	serverSound = Instance.new("Sound")
@@ -61,10 +63,6 @@ do
 		end
 	end
 end
-
----------------------------------------------------------------------
--- Song library
----------------------------------------------------------------------
 
 local SongLibrary = {
 	Act1Tab = {
@@ -122,12 +120,9 @@ local SongLibrary = {
 		["Abracadabra / Dead Dance Intro"] = {ids={135687026376984,123399849387606,110269639369751,73922772246585,114877259721463}, slowed=true, speed=2.5},
 		["Piano: Speechless"] = {ids={103275920661979,92885194956113}, slowed=true, speed=2.0},
 		["Poker Face - Dead Dance"] = {ids={140611443595086,74787943364386}, slowed=true, speed=2.5},
+		["Opening Opera Music"] = {ids={93543880391006,102752210354583,120937976513479,109825274123687}, slowed=true, speed=2.5},
 	},
 }
-
----------------------------------------------------------------------
--- Helpers
----------------------------------------------------------------------
 
 local function updateNowPlaying(text)
 	if playingText then
@@ -139,14 +134,12 @@ local function broadcastStop()
 	currentSong = nil
 	serverSound:Stop()
 	updateNowPlaying("...")
-
 	for _, plr in ipairs(Players:GetPlayers()) do
 		stopEvent:FireClient(plr)
 	end
 end
 
 local function broadcastPlay(ids, slowed, speed, songName)
-	-- Authoritative server start time. Using "now" keeps it instant.
 	local startAt = Workspace:GetServerTimeNow()
 
 	currentSong = {
@@ -160,38 +153,19 @@ local function broadcastPlay(ids, slowed, speed, songName)
 
 	updateNowPlaying(songName)
 
-	-- Server tracker is optional but kept for debugging / visual alignment
 	serverSound:Stop()
 	serverSound.SoundId = "rbxassetid://" .. ids[1]
 	serverSound.PlaybackSpeed = (slowed and speed) or 1
-
-	-- Start the tracker at (almost) the same time as the clients
+	serverSound.TimePosition = 0
 	serverSound:Play()
 
-	-- Tell ALL clients to start their local sequence.
-	-- Clients will compute their own offset using Workspace:GetServerTimeNow()
 	for _, plr in ipairs(Players:GetPlayers()) do
 		playEvent:FireClient(plr, ids, slowed, startAt, overlap, speed or 1)
 	end
 end
 
--- Single Ended connection for the server tracker
-serverSound.Ended:Connect(function()
-	if currentSong then
-		-- When the first ID finishes, consider the song "done" from the server perspective.
-		currentSong = nil
-		updateNowPlaying("...")
-	end
-end)
-
----------------------------------------------------------------------
--- Late join sync
----------------------------------------------------------------------
-
 Players.PlayerAdded:Connect(function(player)
 	if currentSong then
-		-- New player joining late gets snapped into the correct
-		-- position based on the original start time.
 		playEvent:FireClient(
 			player,
 			currentSong.ids,
@@ -203,36 +177,27 @@ Players.PlayerAdded:Connect(function(player)
 	end
 end)
 
----------------------------------------------------------------------
--- Hook UI buttons on the AudioBoard
----------------------------------------------------------------------
-
 local function hookButtons()
 	local board = workspace:FindFirstChild("AudioBoard")
 	if not board then
-		warn("AudioBoard not found in workspace.")
 		return
 	end
 
 	local gui = board:FindFirstChild("SurfaceGui")
 	if not gui then
-		warn("SurfaceGui not found on AudioBoard.")
 		return
 	end
 
 	if not gui:FindFirstChild("Main") then
-		warn("Main frame not found on AudioBoard SurfaceGui.")
 		return
 	end
 
 	local main = gui.Main
 	local audioButtons = main:FindFirstChild("AudioButtons")
 	if not audioButtons then
-		warn("AudioButtons frame not found under Main.")
 		return
 	end
 
-	-- Wire up tab buttons to the library
 	for _, tab in pairs(audioButtons:GetChildren()) do
 		if tab:IsA("Frame") and SongLibrary[tab.Name] then
 			local list = tab:FindFirstChild("ButtonList")
@@ -242,11 +207,8 @@ local function hookButtons()
 						btn.MouseButton1Click:Connect(function()
 							local data = SongLibrary[tab.Name][btn.Text]
 							if data then
-								-- Stop any current song, then start the new one
 								broadcastStop()
 								broadcastPlay(data.ids, data.slowed, data.speed, btn.Text)
-							else
-								warn("No song data for button text:", btn.Text)
 							end
 						end)
 					end
@@ -255,7 +217,6 @@ local function hookButtons()
 		end
 	end
 
-	-- Global stop button
 	local stopBtn = audioButtons:FindFirstChild("StopButton")
 	if stopBtn and stopBtn:IsA("TextButton") then
 		stopBtn.MouseButton1Click:Connect(broadcastStop)
@@ -263,5 +224,3 @@ local function hookButtons()
 end
 
 hookButtons()
-
-print("AudioBoardManager READY (Synced + Instant Start)")

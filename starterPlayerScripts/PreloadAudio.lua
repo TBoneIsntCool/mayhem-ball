@@ -1,4 +1,20 @@
--- client sided
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local self = script
+
+local license = ReplicatedStorage:WaitForChild("LicenseEnabled")
+
+if license.Value == false then
+	self:Destroy()
+	return
+end
+
+license.Changed:Connect(function(new)
+	if new == false then
+		self:Destroy()
+	end
+end)
+
+
 local ContentProvider = game:GetService("ContentProvider")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SOUND_PARENT = workspace
@@ -55,6 +71,7 @@ local allAudioIds = {
 	135687026376984, 123399849387606, 110269639369751, 73922772246585, 114877259721463, --alternate intro
 	103275920661979, 92885194956113, --speechless
 	140611443595086, 74787943364386, --poker face studio/dead dance
+	93543880391006, 102752210354583, 120937976513479, 109825274123687 --symphony
 }
 
 local tempSounds = {}
