@@ -1,1 +1,1 @@
-console.log("hi this is tbone")
+print("this is tbone")
